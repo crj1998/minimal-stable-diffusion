@@ -3,7 +3,7 @@ import numpy as np
 from samplers.sampler import Sampler
 
 class KLMSSampler(Sampler):
-    def __init__(self, n_inference_steps=50, n_training_steps=1000, lms_order=4):
+    def __init__(self, n_inference_steps=50, n_training_steps=1000, lms_order=4, **kwargs):
         super().__init__(n_inference_steps, n_training_steps)
 
         self.lms_order = lms_order

@@ -33,41 +33,55 @@ class StableDiffusionPipeline:
         self.n_inference_steps = n_inference_steps
 
         device = torch.device("cuda")
-        self.tokenizer = Tokenizer()
-        self.clip_text_encoder = models.get('clip', model_builder('clip.text'))
-        self.diffuser = models.get('diffusion', model_builder('diffuser'))
-        self.vae_decoder = models.get('decoder', model_builder('vae.decoder'))
-        self.sampler = sampler_builder(sampler)
+
+        self.generator = torch.Generator(device=device)
+        if seed is None:
+            self.generator.seed()
+        else:
+            self.generator.manual_seed(seed)
+
+        self.models = models or {}
+        # self.tokenizer = Tokenizer()
+        # self.text_encoder = self.models.get('clip.language', model_builder('clip.language')).to(device)
+        # self.diffuser = models.get('diffusion', model_builder('diffuser'))
+        # self.vae_decoder = models.get('decoder', model_builder('vae.decoder'))
+        self.sampler = sampler_builder(sampler, generator = self.generator)
         self.device = device
 
     def load_pretrained(self):
         return self
     
-    def txt2img(self):
+    def img2img(self):
         pass
-
-    def img2img(self, prompts, uncond_prompts=None):
+    
+    @torch.no_grad()
+    def txt2img(self, prompts, uncond_prompts=None):
+        prompts = prompts if isinstance(prompts, list) else [prompts]
         uncond_prompts = uncond_prompts or [""] * len(prompts)
+        self.tokenizer = Tokenizer()
+        self.text_encoder = self.models.get('clip.language', model_builder('clip.language')).to(self.device)
         if self.do_cfg:
             cond_tokens = self.tokenizer.encode_batch(prompts)    # List [1, 77]
             cond_tokens = torch.tensor(cond_tokens, dtype=torch.long, device=self.device)    # (1, 77)
-            cond_context = self.clip_text_encoder(cond_tokens)    # (1, 77, 768)
+            cond_context = self.text_encoder(cond_tokens)    # (1, 77, 768)
             uncond_tokens = self.tokenizer.encode_batch(uncond_prompts)
             uncond_tokens = torch.tensor(uncond_tokens, dtype=torch.long, device=self.device)
-            uncond_context = self.clip_text_encoder(uncond_tokens)    # (1, 77, 768)
+            uncond_context = self.text_encoder(uncond_tokens)    # (1, 77, 768)
             context = torch.cat([cond_context, uncond_context])    # (2, 77, 768)
         else:
             tokens = self.tokenizer.encode_batch(prompts)
             tokens = torch.tensor(tokens, dtype=torch.long, device=self.device)
-            context = self.clip_text_encoder(tokens)
-
+            context = self.text_encoder(tokens)
+        print(context.shape)
+        del self.text_encoder, self.tokenizer
         noise_shape = (len(prompts), 4, self.height // 8, self.width // 8)
 
         latents = torch.randn(noise_shape, generator=self.generator, device=self.device)    # [1, 4, 64, 64]
         latents *= self.sampler.initial_scale
 
+        self.diffuser = self.models.get('diffuser', model_builder('diffuser')).to(self.device)
         for i, t in enumerate(self.sampler.timesteps):
-
+            print(i, t)
             input_latents = latents * self.sampler.get_input_scale()
 
             if self.do_cfg:
@@ -81,7 +95,22 @@ class StableDiffusionPipeline:
                 output = self.cfg_scale * (output_cond - output_uncond) + output_uncond    # [1, 4, 64, 64]
 
             latents = self.sampler.step(latents, output)    # [1, 4, 64, 64]
+        
+        del self.diffuser
 
+        self.decoder = self.models.get('vae.decoder', model_builder('vae.decoder')).to(self.device)
         images = self.decoder(latents)    # [1, 3, 512, 512]
 
+        del self.decoder
+
         # post process
+        from torchvision.utils import save_image, make_grid
+        save_image(make_grid(images, nrow=1, padding = 2, normalize = True, value_range=(-1, 1)), "output.jpg")
+
+
+if __name__ == '__main__':
+    prompt = "a photograph of an astronaut riding a horse"
+    app = StableDiffusionPipeline(seed=42)
+    # tokens = app.tokenizer.encode(prompt)
+    # print(tokens)
+    app.txt2img(prompt)

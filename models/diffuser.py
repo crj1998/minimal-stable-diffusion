@@ -7,25 +7,25 @@ from models.unet import UNet
 class TimeEmbedding(nn.Module):
     def __init__(self, dim: int):
         super(TimeEmbedding, self).__init__()
-        self.linear1 = nn.Linear(dim, 4 * dim)
-        self.linear2 = nn.Linear(4 * dim, 4 * dim)
+        self.linear_1 = nn.Linear(dim, 4 * dim)
+        self.linear_2 = nn.Linear(4 * dim, 4 * dim)
         self.silu = nn.SiLU()
 
     def forward(self, x):
-        x = self.linear1(x)
+        x = self.linear_1(x)
         x = self.silu(x)
-        x = self.linear2(x)
+        x = self.linear_2(x)
         return x
 
 class FinalLayer(nn.Module):
     def __init__(self, in_channels: int, out_channels: int):
         super(FinalLayer, self).__init__()
-        self.gn = nn.GroupNorm(32, in_channels)
+        self.groupnorm = nn.GroupNorm(32, in_channels)
         self.conv = nn.Conv2d(in_channels, out_channels, kernel_size=3, stride=1, padding=1)
         self.silu = nn.SiLU()
 
     def forward(self, x):
-        x = self.gn(x)
+        x = self.groupnorm(x)
         x = self.silu(x)
         x = self.conv(x)
         return x

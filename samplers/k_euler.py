@@ -2,7 +2,7 @@ from samplers.sampler import Sampler
 
 
 class KEulerSampler(Sampler):
-    def __init__(self, n_inference_steps=50, n_training_steps=1000):
+    def __init__(self, n_inference_steps=50, n_training_steps=1000, **kwargs):
         super().__init__(n_inference_steps, n_training_steps)
 
 

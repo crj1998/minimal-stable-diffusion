@@ -1,9 +1,17 @@
-import unicodedata
-import functools
-import json
 from typing import List, Tuple
+import os
+import json
+import unicodedata
 import regex as re
-from . import util
+from functools import lru_cache
+
+import torch
+
+def get_file_path(filename, url=None):
+    module_location = os.path.dirname(os.path.abspath(__file__))
+    # parent_location = os.path.dirname(module_location)
+    file_location = os.path.join(module_location, "weights", filename)
+    return file_location
 
 
 def create_bytes_table() -> dict:
@@ -25,21 +33,26 @@ def pairwise(seq):
     return zip(a, b)
 
 class Tokenizer:
-    def __init__(self, ):
-        with open(util.get_file_path('vocab.json'), encoding='utf-8') as f:
+    def __init__(self):
+        with open(get_file_path('vocab.json'), encoding='utf-8') as f:
             self.vocab = json.load(f)
 
-        with open(util.get_file_path('merges.txt'), encoding='utf-8') as f:
+        with open(get_file_path('merges.txt'), encoding='utf-8') as f:
             lines = f.read().split('\n')
             lines = lines[1:-1]
             self.merges = {tuple(bigram.split()): i for i, bigram in enumerate(lines)}
 
         self.bos_token = self.vocab["<|startoftext|>"]
         self.eos_token = self.vocab["<|endoftext|>"]
-        self.pad_token = self.vocab["<|endoftext|>"]
+        # self.pad_token = self.vocab["<|endoftext|>"]
+        self.pad_token = self.vocab["!"]
         self.max_length = 77
         self.bytes_table = create_bytes_table()
         self.chunk_pattern = re.compile(r"""<\|startoftext\|>|<\|endoftext\|>|'s|'t|'re|'ve|'m|'ll|'d|[\p{L}]+|[\p{N}]|[^\s\p{L}\p{N}]+""", re.IGNORECASE)
+
+    def __call__(self, inputs):
+        inputs = inputs if isinstance(inputs, list) else [inputs]
+        return torch.tensor(self.encode_batch(inputs), dtype=torch.long)
 
     def encode(self, text: str) -> List[int]:
         text = unicodedata.normalize('NFC', text)
@@ -61,8 +74,8 @@ class Tokenizer:
     
     def encode_batch(self, texts: List[str]) -> List[List[int]]:
         return [self.encode(text) for text in texts]
-
-    @functools.lru_cache(maxsize=10000)
+    
+    @lru_cache(maxsize=10000)
     def bpe(self, chunk: str) -> Tuple[str]:
         words = list(chunk)
         words[-1] += "</w>"

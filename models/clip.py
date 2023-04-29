@@ -9,42 +9,62 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
+from models.modules import SelfAttention
+from tokenizer import Tokenizer
+
 class QuickGELU(nn.Module):
     def forward(self, x: torch.Tensor):
         return x * torch.sigmoid(1.702 * x)
 
-class ResidualAttentionBlock(nn.Module):
-    def __init__(self, d_model: int, n_head: int, attn_mask: torch.Tensor = None):
+class TransformerLayer(nn.Module):
+    def __init__(self, n_head: int, n_embd: int, attn_mask: bool=False):
         super().__init__()
-
-        self.attn = nn.MultiheadAttention(d_model, n_head)
-        self.ln_1 = nn.LayerNorm(d_model)
-        self.mlp = nn.Sequential(OrderedDict([
-            ("c_fc", nn.Linear(d_model, d_model * 4)),
-            ("gelu", QuickGELU()),
-            ("c_proj", nn.Linear(d_model * 4, d_model))
-        ]))
-        self.ln_2 = nn.LayerNorm(d_model)
         self.attn_mask = attn_mask
+        self.layernorm_1 = nn.LayerNorm(n_embd)
+        self.attention = SelfAttention(n_head, n_embd)
+        self.layernorm_2 = nn.LayerNorm(n_embd)
+        self.linear_1 = nn.Linear(n_embd, 4 * n_embd)
+        self.linear_2 = nn.Linear(4 * n_embd, n_embd)
+        self.gelu = QuickGELU()
 
-    def attention(self, x: torch.Tensor):
-        self.attn_mask = self.attn_mask.to(dtype=x.dtype, device=x.device) if self.attn_mask is not None else None
-        return self.attn(x, x, x, need_weights=False, attn_mask=self.attn_mask)[0]
+    def forward(self, x):
+        identity = x
+        x = self.layernorm_1(x)
+        x = self.attention(x, causal_mask=self.attn_mask)
+        x = x + identity
 
-    def forward(self, x: torch.Tensor):
-        x = x + self.attention(self.ln_1(x))
-        x = x + self.mlp(self.ln_2(x))
+        identity = x
+        x = self.layernorm_2(x)
+        x = self.linear_1(x)
+        x = self.gelu(x)   # QuickGELU activation function
+        x = self.linear_2(x)
+        x = x + identity
+
         return x
 
-class Transformer(nn.Module):
-    def __init__(self, width: int, layers: int, heads: int, attn_mask: torch.Tensor = None):
+class LanguageTransformer(nn.Module):
+    def __init__(
+        self,
+        context_length: int = 77,
+        vocab_size: int = 49408,
+        width: int = 768,
+        heads: int = 12,
+        layers: int = 12
+    ):
         super().__init__()
-        self.width = width
-        self.layers = layers
-        self.resblocks = nn.Sequential(*[ResidualAttentionBlock(width, heads, attn_mask) for _ in range(layers)])
+        self.token_embedding = nn.Embedding(vocab_size, width)
+        self.positional_embedding = nn.Parameter(torch.zeros((context_length, width)))
+        self.layers = nn.Sequential(*[
+            TransformerLayer(heads, width, True) for _ in range(layers)  # attn mask used
+        ])
+        self.layernorm = nn.LayerNorm(width)
+    
+    def forward(self, tokens: torch.LongTensor) -> torch.FloatTensor:        
+        state = self.token_embedding(tokens) + self.positional_embedding
+        state = self.layers(state)
+        output = self.layernorm(state)
+        return output
 
-    def forward(self, x: torch.Tensor):
-        return self.resblocks(x)
 
 class VisionTransformer(nn.Module):
     def __init__(self, input_resolution: int, patch_size: int, width: int, layers: int, heads: int, output_dim: int):
@@ -58,7 +78,9 @@ class VisionTransformer(nn.Module):
         self.positional_embedding = nn.Parameter(scale * torch.randn((input_resolution // patch_size) ** 2 + 1, width))
         self.ln_pre = nn.LayerNorm(width)
 
-        self.transformer = Transformer(width, layers, heads)
+        self.layers = nn.Sequential(*[
+            TransformerLayer(heads, width, False) for _ in range(layers)  # attn mask unused
+        ])
 
         self.ln_post = nn.LayerNorm(width)
         self.proj = nn.Parameter(scale * torch.randn(width, output_dim))
@@ -67,19 +89,18 @@ class VisionTransformer(nn.Module):
         x = self.conv1(x)  # shape = [*, width, grid, grid]
         x = x.reshape(x.shape[0], x.shape[1], -1)  # shape = [*, width, grid ** 2]
         x = x.permute(0, 2, 1)  # shape = [*, grid ** 2, width]
-        x = torch.cat([self.class_embedding.to(x.dtype) + torch.zeros(x.shape[0], 1, x.shape[-1], dtype=x.dtype, device=x.device), x], dim=1)  # shape = [*, grid ** 2 + 1, width]
-        x = x + self.positional_embedding.to(x.dtype)
+        x = torch.cat([self.class_embedding + torch.zeros(x.shape[0], 1, x.shape[-1], dtype=x.dtype, device=x.device), x], dim=1)  # shape = [*, grid ** 2 + 1, width]
+        x = x + self.positional_embedding
+
         x = self.ln_pre(x)
-
-        x = x.permute(1, 0, 2)  # NLD -> LND
-        x = self.transformer(x)
-        x = x.permute(1, 0, 2)  # LND -> NLD
-
+        # print(x.mean())
+        x = self.layers(x)
+        # print(x[:, :2, :])
+        # print(x.mean())
         x = self.ln_post(x[:, 0, :])
-
-        if self.proj is not None:
-            x = x @ self.proj
-
+        
+        x = x @ self.proj
+        
         return x
     
 
@@ -101,94 +122,64 @@ class CLIP(nn.Module):
     ):
         super().__init__()
 
-        self.context_length = context_length
-
-        vision_heads = vision_width // 64
-
         self.visual = VisionTransformer(
             input_resolution=image_resolution,
             patch_size=vision_patch_size,
             width=vision_width,
             layers=vision_layers,
-            heads=vision_heads,
+            heads=vision_width // 64,
             output_dim=embed_dim
         )
 
-        self.transformer = Transformer(
+        self.language = LanguageTransformer(
+            context_length=context_length,
+            vocab_size=vocab_size,
             width=transformer_width,
             layers=transformer_layers,
             heads=transformer_heads,
-            attn_mask=self.build_attention_mask()
         )
-
-        self.vocab_size = vocab_size
-        self.token_embedding = nn.Embedding(vocab_size, transformer_width)
-        self.positional_embedding = nn.Parameter(torch.empty(self.context_length, transformer_width))
-        self.ln_final = nn.LayerNorm(transformer_width)
 
         self.text_projection = nn.Parameter(torch.empty(transformer_width, embed_dim))
         self.logit_scale = nn.Parameter(torch.ones([]) * math.log(1 / 0.07))
 
-        self.initialize_parameters()
+    def encode_image(self, images: torch.FloatTensor) -> torch.FloatTensor:
+        image_features = self.visual(images)
+        return image_features
 
-    def initialize_parameters(self):
-        nn.init.normal_(self.token_embedding.weight, std=0.02)
-        nn.init.normal_(self.positional_embedding, std=0.01)
-
-        proj_std = (self.transformer.width ** -0.5) * ((2 * self.transformer.layers) ** -0.5)
-        attn_std = self.transformer.width ** -0.5
-        fc_std = (2 * self.transformer.width) ** -0.5
-        for block in self.transformer.resblocks:
-            nn.init.normal_(block.attn.in_proj_weight, std=attn_std)
-            nn.init.normal_(block.attn.out_proj.weight, std=proj_std)
-            nn.init.normal_(block.mlp.c_fc.weight, std=fc_std)
-            nn.init.normal_(block.mlp.c_proj.weight, std=proj_std)
-
-        if self.text_projection is not None:
-            nn.init.normal_(self.text_projection, std=self.transformer.width ** -0.5)
-
-    def build_attention_mask(self):
-        # lazily create causal attention mask, with full attention between the vision tokens
-        # pytorch uses additive attention mask; fill with -inf
-        mask = torch.empty(self.context_length, self.context_length)
-        mask.fill_(value=float("-inf"))
-        mask.triu_(diagonal=1)  # zero out the lower diagonal
-        return mask
-
-    @property
-    def dtype(self):
-        return self.visual.conv1.weight.dtype
-
-    def encode_image(self, image: torch.Tensor) -> torch.Tensor:
-        return self.visual(image.type(self.dtype))
-
-    def encode_text(self, text: List[str]) -> torch.Tensor:
-        x = self.token_embedding(text).type(self.dtype)  # [batch_size, n_ctx, d_model]
-
-        x = x + self.positional_embedding.type(self.dtype)
-        x = x.permute(1, 0, 2)  # NLD -> LND
-        x = self.transformer(x)
-        x = x.permute(1, 0, 2)  # LND -> NLD
-        x = self.ln_final(x).type(self.dtype)
-
+    def encode_text(self, texts: torch.LongTensor) -> torch.Tensor:
+        text_features = self.language(texts)
         # x.shape = [batch_size, n_ctx, transformer.width]
         # take features from the eot embedding (eot_token is the highest number in each sequence)
-        x = x[torch.arange(x.shape[0]), text.argmax(dim=-1)] @ self.text_projection
+        text_features = text_features[torch.arange(text_features.size(0)), texts.argmax(dim=-1)] @ self.text_projection
 
-        return x
+        return text_features
 
-    def forward(self, image, text):
-        image_features = self.encode_image(image)
-        text_features = self.encode_text(text)
+    def forward(self, images, texts):
+        image_features = self.encode_image(images)
+        text_features = self.encode_text(texts)
 
         # normalized features
         image_features = image_features / image_features.norm(dim=1, keepdim=True)
         text_features = text_features / text_features.norm(dim=1, keepdim=True)
 
         # cosine similarity as logits
-        logit_scale = self.logit_scale.exp()
+        logit_scale = torch.exp(self.logit_scale)
         logits_per_image = logit_scale * image_features @ text_features.t()
         logits_per_text = logits_per_image.t()
 
         # shape = [global_batch_size, global_batch_size]
         return logits_per_image, logits_per_text
+
+    @staticmethod
+    def process(n_px=224):
+        import torchvision.transforms as T
+        # def _convert_image_to_rgb(image):
+        #     return image.convert("RGB")
+        # RGB format
+        return T.Compose([
+            T.Resize(n_px, interpolation=T.InterpolationMode.BICUBIC),
+            T.CenterCrop(n_px),
+            # _convert_image_to_rgb,
+            T.ToTensor(),
+            T.Normalize((0.48145466, 0.4578275, 0.40821073), (0.26862954, 0.26130258, 0.27577711)),
+        ]), Tokenizer()

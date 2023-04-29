@@ -9,6 +9,6 @@ SAMPLERS = {
     "k_euler_ancestral": KEulerAncestralSampler
 }
 
-def builder(sampler):
+def builder(sampler, **kwargs):
    assert sampler in SAMPLERS.keys()
-   return SAMPLERS[sampler]
+   return SAMPLERS[sampler](**kwargs)
