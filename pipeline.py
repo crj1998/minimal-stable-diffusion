@@ -59,7 +59,8 @@ class StableDiffusionPipeline:
         prompts = prompts if isinstance(prompts, list) else [prompts]
         uncond_prompts = uncond_prompts or [""] * len(prompts)
         self.tokenizer = Tokenizer()
-        self.text_encoder = self.models.get('clip.language', model_builder('clip.language')).to(self.device)
+        self.text_encoder = self.models.get('clip.language', model_builder('clip.language', pretrained=True)).to(self.device)
+        self.do_cfg = False
         if self.do_cfg:
             cond_tokens = self.tokenizer.encode_batch(prompts)    # List [1, 77]
             cond_tokens = torch.tensor(cond_tokens, dtype=torch.long, device=self.device)    # (1, 77)
@@ -72,14 +73,14 @@ class StableDiffusionPipeline:
             tokens = self.tokenizer.encode_batch(prompts)
             tokens = torch.tensor(tokens, dtype=torch.long, device=self.device)
             context = self.text_encoder(tokens)
-        print(context.shape)
+
         del self.text_encoder, self.tokenizer
         noise_shape = (len(prompts), 4, self.height // 8, self.width // 8)
 
         latents = torch.randn(noise_shape, generator=self.generator, device=self.device)    # [1, 4, 64, 64]
         latents *= self.sampler.initial_scale
 
-        self.diffuser = self.models.get('diffuser', model_builder('diffuser')).to(self.device)
+        self.diffuser = self.models.get('diffuser', model_builder('diffuser', pretrained=True)).to(self.device)
         for i, t in enumerate(self.sampler.timesteps):
             print(i, t)
             input_latents = latents * self.sampler.get_input_scale()
@@ -98,14 +99,14 @@ class StableDiffusionPipeline:
         
         del self.diffuser
 
-        self.decoder = self.models.get('vae.decoder', model_builder('vae.decoder')).to(self.device)
+        self.decoder = self.models.get('vae.decoder', model_builder('vae.decoder', pretrained=True)).to(self.device)
         images = self.decoder(latents)    # [1, 3, 512, 512]
 
         del self.decoder
 
         # post process
         from torchvision.utils import save_image, make_grid
-        save_image(make_grid(images, nrow=1, padding = 2, normalize = True, value_range=(-1, 1)), "output.jpg")
+        save_image(make_grid(images, nrow=1, padding = 2, normalize = True, value_range=(-1, 1)), "output1.jpg")
 
 
 if __name__ == '__main__':

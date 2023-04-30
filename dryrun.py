@@ -22,7 +22,7 @@ device = torch.device("cuda")
 #     k = k.replace("residual_layer", "residual")
 #     new_state_dict[k] = v
 # encoder.load_state_dict(new_state_dict)
-# torch.save(encoder.state_dict(), "weights/encoder.pth")
+# torch.save(encoder.state_dict(), "weights/encoder.pt")
 
 # x = torch.randn(2, 3, 512, 512)
 # n = torch.randn(2, 4, 64, 64)
@@ -46,7 +46,7 @@ device = torch.device("cuda")
 #     k = k.replace("residual_layer", "residual")
 #     new_state_dict[k] = v
 # decoder.load_state_dict(new_state_dict)
-# torch.save(decoder.state_dict(), "weights/decoder.pth")
+# torch.save(decoder.state_dict(), "weights/decoder.pt")
 
 # x = torch.randn(2, 4, 64, 64)
 # summary(
@@ -110,15 +110,15 @@ device = torch.device("cuda")
 # state_dict = torch.load("data/ckpt/diffusion.pt")
 # new_state_dict = {}
 # for k, v in state_dict.items():
-#     print(k, v.shape)
-    # k = k.replace("groupnorm_", "gn")
-    # k = k.replace("groupnorm", "gn")
-    # k = k.replace("conv_", "conv")
-    # k = k.replace("attention", "attn")
-    # k = k.replace("residual_layer", "residual")
-    # new_state_dict[k] = v
+#     # print(k, v.shape)
+#     k = k.replace("groupnorm_", "gn")
+#     k = k.replace("groupnorm", "gn")
+#     k = k.replace("conv_", "conv")
+#     k = k.replace("attention", "attn")
+#     k = k.replace("residual_layer", "residual")
+#     new_state_dict[k] = v
 # diffuser.load_state_dict(state_dict)
-# torch.save(diffuser.state_dict(), "weights/diffuser.pth")
+# torch.save(diffuser.state_dict(), "weights/diffuser.pt")
 # l = torch.randn(1, 4, 64, 64).to(device)
 # c = torch.randn(1, 77, 768).to(device)
 # t = torch.randn(1, 320).to(device)
@@ -146,42 +146,38 @@ device = torch.device("cuda")
 # clip_text.load_state_dict(new_state_dict)
 # torch.save(clip_text.state_dict(), "weights/clip.language.pt")
 
-# model = torch.jit.load("ViT-L-14.pt")
-# state_dict = model.visual.state_dict()
-# clip_visual = model_builder("clip.visual", device)
-# print(f"CLIP Language Transformer: {sum(p.numel() for p in clip_visual.parameters())/1e6:.1f} M")
-# # state_dict = clip_visual.state_dict()
-# # for k, v in state_dict.items():
-# #     print(k, v.shape)
-# print(5*"======")
-
-# new_state_dict = {}
-# mapping = {}
-
-# for i in range(24):
-#     mapping[f"transformer.resblocks.{i}.ln_1.weight"] = f"layers.{i}.layernorm_1.weight"
-#     mapping[f"transformer.resblocks.{i}.ln_1.bias"] = f"layers.{i}.layernorm_1.bias"
-#     mapping[f"transformer.resblocks.{i}.ln_2.weight"] = f"layers.{i}.layernorm_2.weight"
-#     mapping[f"transformer.resblocks.{i}.ln_2.bias"] = f"layers.{i}.layernorm_2.bias"
-#     mapping[f"transformer.resblocks.{i}.attn.in_proj_weight"] = f"layers.{i}.attention.in_proj.weight"
-#     mapping[f"transformer.resblocks.{i}.attn.in_proj_bias"] = f"layers.{i}.attention.in_proj.bias"
-#     mapping[f"transformer.resblocks.{i}.attn.out_proj.weight"] = f"layers.{i}.attention.out_proj.weight"
-#     mapping[f"transformer.resblocks.{i}.attn.out_proj.bias"] = f"layers.{i}.attention.out_proj.bias"
-#     mapping[f"transformer.resblocks.{i}.mlp.c_fc.weight"] = f"layers.{i}.linear_1.weight"
-#     mapping[f"transformer.resblocks.{i}.mlp.c_fc.bias"] = f"layers.{i}.linear_1.bias"
-#     mapping[f"transformer.resblocks.{i}.mlp.c_proj.weight"] = f"layers.{i}.linear_2.weight"
-#     mapping[f"transformer.resblocks.{i}.mlp.c_proj.bias"] = f"layers.{i}.linear_2.bias"
-
-# for k, v in state_dict.items():
-#     new_state_dict[mapping.get(k, k)] = v
-# clip_visual.load_state_dict(new_state_dict)
-# torch.save(clip_visual.state_dict(), "weights/clip.visual.pt")
-
 model = torch.jit.load("ViT-L-14.pt")
-state_dict = model.state_dict()
-for name in list(state_dict.keys()):
-    if name not in ['text_projection', 'logit_scale']:
-        del state_dict[name]
-print(type(state_dict), state_dict)
-# print(list(state_dict.keys()))
-torch.save(state_dict, "weights/clip.pt")
+state_dict = model.visual.state_dict()
+clip_visual = model_builder("clip.visual", device)
+print(f"CLIP Language Transformer: {sum(p.numel() for p in clip_visual.parameters())/1e6:.1f} M")
+
+new_state_dict = {}
+mapping = {}
+
+for i in range(24):
+    mapping[f"transformer.resblocks.{i}.ln_1.weight"] = f"layers.{i}.layernorm_1.weight"
+    mapping[f"transformer.resblocks.{i}.ln_1.bias"] = f"layers.{i}.layernorm_1.bias"
+    mapping[f"transformer.resblocks.{i}.ln_2.weight"] = f"layers.{i}.layernorm_2.weight"
+    mapping[f"transformer.resblocks.{i}.ln_2.bias"] = f"layers.{i}.layernorm_2.bias"
+    mapping[f"transformer.resblocks.{i}.attn.in_proj_weight"] = f"layers.{i}.attention.in_proj.weight"
+    mapping[f"transformer.resblocks.{i}.attn.in_proj_bias"] = f"layers.{i}.attention.in_proj.bias"
+    mapping[f"transformer.resblocks.{i}.attn.out_proj.weight"] = f"layers.{i}.attention.out_proj.weight"
+    mapping[f"transformer.resblocks.{i}.attn.out_proj.bias"] = f"layers.{i}.attention.out_proj.bias"
+    mapping[f"transformer.resblocks.{i}.mlp.c_fc.weight"] = f"layers.{i}.linear_1.weight"
+    mapping[f"transformer.resblocks.{i}.mlp.c_fc.bias"] = f"layers.{i}.linear_1.bias"
+    mapping[f"transformer.resblocks.{i}.mlp.c_proj.weight"] = f"layers.{i}.linear_2.weight"
+    mapping[f"transformer.resblocks.{i}.mlp.c_proj.bias"] = f"layers.{i}.linear_2.bias"
+
+for k, v in state_dict.items():
+    new_state_dict[mapping.get(k, k)] = v
+clip_visual.load_state_dict(new_state_dict)
+torch.save(clip_visual.state_dict(), "weights/clip.visual.pt")
+
+# model = torch.jit.load("ViT-L-14.pt")
+# state_dict = model.state_dict()
+# for name in list(state_dict.keys()):
+#     if name not in ['text_projection', 'logit_scale']:
+#         del state_dict[name]
+# print(type(state_dict), state_dict)
+# # print(list(state_dict.keys()))
+# torch.save(state_dict, "weights/clip.pt")

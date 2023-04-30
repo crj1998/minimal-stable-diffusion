@@ -32,16 +32,16 @@ KWARGS = {
 }
 
 WEIGHTS = {
-    "vae.encoder": "/home/crj1998/workspace/minimal-stable-diffusion/weights/encoder.pt",
-    "vae.decoder": "/home/crj1998/workspace/minimal-stable-diffusion/weights/decoder.pt",
-    # "unet": "/home/crj1998/workspace/minimal-stable-diffusion/weights/encoder.pt",
-    "diffuser": "/home/crj1998/workspace/minimal-stable-diffusion/weights/diffuser.pt",
-    "clip": "/home/crj1998/workspace/minimal-stable-diffusion/weights/clip.pt",
-    "clip.language": "/home/crj1998/workspace/minimal-stable-diffusion/weights/clip.language.pt",
-    "clip.visual": "/home/crj1998/workspace/minimal-stable-diffusion/weights/clip.visual.pt"
+    "vae.encoder": "/home/maze/workspace/minimal-stable-diffusion/weights/encoder.pt",
+    "vae.decoder": "/home/maze/workspace/minimal-stable-diffusion/weights/decoder.pt",
+    # "unet": "/home/maze/workspace/minimal-stable-diffusion/weights/encoder.pt",
+    "diffuser": "/home/maze/workspace/minimal-stable-diffusion/weights/diffuser.pt",
+    "clip": "/home/maze/workspace/minimal-stable-diffusion/weights/clip.pt",
+    "clip.language": "/home/maze/workspace/minimal-stable-diffusion/weights/clip.language.pt",
+    "clip.visual": "/home/maze/workspace/minimal-stable-diffusion/weights/clip.visual.pt"
 }
 
-def builder(name, device=None, pretrained=True):
+def builder(name, pretrained=False, device=None):
     model = MODELS[name](**KWARGS[name])
     if pretrained:
         import torch
@@ -52,7 +52,7 @@ def builder(name, device=None, pretrained=True):
         else:
             model.load_state_dict(torch.load(WEIGHTS[name]))
             print(f"{name} load weights from {WEIGHTS[name]}.")
-    model.to(device)
+    # model.to(device)
     return model
 
 def available_models():
